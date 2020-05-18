@@ -48,6 +48,15 @@ def test_trial_crash():
     assert excinfo.value.logs == {'input': 'crash\n', 'stderr': 'I crash\n'}
 
 
+def test_trial_target_not_found():
+    args = hypnofrog.parse_args([solution('does not exist'), '--reference', solution('helloworld')])
+    with pytest.raises(hypnofrog.CrashError,
+                       match='Target crashed: .* No such file.*') as excinfo:
+        hypnofrog.trial('crash\n', args)
+    assert excinfo.value.files == {'hypnofrog.in': 'crash\n'}
+    assert excinfo.value.logs == {'input': 'crash\n'}
+
+
 def test_trial_mem_limit():
     args = hypnofrog.parse_args([
         solution('memory_hog'),

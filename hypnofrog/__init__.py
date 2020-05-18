@@ -38,13 +38,15 @@ class AnswerMismatch(BadAnswer):
 class CrashError(FailedCase):
     def __init__(self, input, error):
         super().__init__(f'Target crashed: {error}', input)
-        self.logs['stderr'] = error.stderr
+        if hasattr(error, 'stderr'):
+            self.logs['stderr'] = error.stderr
 
 
 class BadReferenceError(FailedCase):
     def __init__(self, input, error):
         super().__init__(f'Reference crashed: {error}', input)
-        self.logs['stderr'] = error.stderr
+        if hasattr(error, 'stderr'):
+            self.logs['stderr'] = error.stderr
 
 
 @contextlib.contextmanager
@@ -109,11 +111,11 @@ def trial(input, args):
     try:
         try:
             actual = invoke(args.target, input, args.mem_limit)
-        except subprocess.CalledProcessError as exc:
+        except (subprocess.CalledProcessError, OSError) as exc:
             raise CrashError(input, exc) from exc
         try:
             expected = invoke(args.reference, input) if args.reference is not None else actual
-        except subprocess.CalledProcessError as exc:
+        except (subprocess.CalledProcessError, OSError) as exc:
             raise BadReferenceError(input, exc) from exc
         if expected != actual:
             raise AnswerMismatch(input, actual, expected)
