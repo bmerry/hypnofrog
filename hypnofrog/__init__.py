@@ -1,7 +1,6 @@
 """Property-based testing for competitive programming.
 
 Still to do:
-- Print timing info and number of runs so far
 - Graceful SIGINT handling
 - Checkers
 """
@@ -9,9 +8,10 @@ Still to do:
 import argparse
 import contextlib
 import io
+import resource
 import subprocess
 import sys
-import resource
+import time
 
 from hypothesis import given, settings, Verbosity
 
@@ -109,10 +109,12 @@ def invoke(program, input, mem_limit=None):
 
 def trial(input, args):
     try:
+        start = time.monotonic()
         try:
             actual = invoke(args.target, input, args.mem_limit)
         except (subprocess.CalledProcessError, OSError) as exc:
             raise CrashError(input, exc) from exc
+        end = time.monotonic()
         try:
             expected = invoke(args.reference, input) if args.reference is not None else actual
         except (subprocess.CalledProcessError, OSError) as exc:
@@ -123,19 +125,28 @@ def trial(input, args):
         raise
     except Exception as exc:
         raise FailedCase(f'Unexpected error: {exc}', input) from exc
+    return end - start
 
 
 def run(strategy, args=None):
     @given(strategy)
     @settings(max_examples=1000000, verbosity=Verbosity.quiet)
     def test_function(data):
-        trial(data, args)
+        nonlocal done, max_elapsed
+        elapsed = trial(data, args)
+        max_elapsed = max(max_elapsed, elapsed)
+        done += 1
+        print(f'\033[1G\033[K{done:6} iterations, max time {max_elapsed:.3f}', end='', flush=True)
 
+    done = 0
+    max_elapsed = 0.0
     if args is None:
         args = parse_args()
     try:
         test_function()
     except FailedCase as exc:
+        print()
+        print()
         print(exc)
         for name, content in exc.logs.items():
             if content:
