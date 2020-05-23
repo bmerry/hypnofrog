@@ -91,3 +91,23 @@ def test_trial_no_reference_crash():
         hypnofrog.trial('crash\n', args)
     assert excinfo.value.files == {'hypnofrog.in': 'crash\n'}
     assert excinfo.value.logs == {'input': 'crash\n', 'stderr': 'I crash\n'}
+
+
+def test_trial_checker_pass():
+    args = hypnofrog.parse_args([solution('helloworld'), '--checker', solution('check_same')])
+    hypnofrog.trial('1\nhello world\n', args)
+
+
+def test_trial_checker_fail():
+    args = hypnofrog.parse_args([solution('helloworld'), '--checker', solution('check_same')])
+    with pytest.raises(hypnofrog.FailedCheckerError,
+                       match='Checker failed: .* returned non-zero exit status 1') as excinfo:
+        hypnofrog.trial('wrong\n', args)
+    assert excinfo.value.files == {
+        'hypnofrog.in': 'wrong\n',
+        'hypnofrog.out': '1\nhello world\n'
+    }
+    assert excinfo.value.logs == {
+        'input': 'wrong\n',
+        'stderr': 'Answers differ\n'
+    }

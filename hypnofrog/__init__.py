@@ -2,7 +2,6 @@
 
 Still to do:
 - Graceful SIGINT handling
-- Checkers
 """
 
 import argparse
@@ -11,6 +10,7 @@ import io
 import resource
 import subprocess
 import sys
+import tempfile
 import time
 
 from hypothesis import given, settings, Verbosity
@@ -49,6 +49,13 @@ class BadReferenceError(FailedCase):
             self.logs['stderr'] = error.stderr
 
 
+class FailedCheckerError(BadAnswer):
+    def __init__(self, input, output, error):
+        super().__init__(f'Checker failed: {error}', input, output)
+        if hasattr(error, 'stdout'):
+            self.logs['stderr'] = error.stdout
+
+
 @contextlib.contextmanager
 def capture_stdout():
     """Context manager that captures standard out, returning a StringIO.
@@ -82,6 +89,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('target', help='Program to test')
     parser.add_argument('--reference', help='Reference implementation')
+    parser.add_argument('--checker', help='Checker implementation (takes input, output as args)')
     parser.add_argument('--mem-limit', '-m', type=int, help='Virtual memory limit (MB)')
     # TODO: add --checker, --base, --files
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -99,7 +107,7 @@ def invoke(program, input, mem_limit=None):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         input=input,
-        encoding='us-ascii',
+        encoding='utf-8',
         check=True,
         close_fds=True,
         preexec_fn=preexec if mem_limit is not None else None
@@ -115,12 +123,30 @@ def trial(input, args):
         except (subprocess.CalledProcessError, OSError) as exc:
             raise CrashError(input, exc) from exc
         end = time.monotonic()
-        try:
-            expected = invoke(args.reference, input) if args.reference is not None else actual
-        except (subprocess.CalledProcessError, OSError) as exc:
-            raise BadReferenceError(input, exc) from exc
-        if expected != actual:
-            raise AnswerMismatch(input, actual, expected)
+        if args.reference is not None:
+            try:
+                expected = invoke(args.reference, input)
+            except (subprocess.CalledProcessError, OSError) as exc:
+                raise BadReferenceError(input, exc) from exc
+            if expected != actual:
+                raise AnswerMismatch(input, actual, expected)
+        if args.checker is not None:
+            with tempfile.NamedTemporaryFile('w+', encoding='utf-8', suffix='.in') as inf, \
+                    tempfile.NamedTemporaryFile('w+', encoding='utf-8', suffix='.out') as outf:
+                inf.write(input)
+                inf.flush()
+                outf.write(actual)
+                outf.flush()
+                try:
+                    result = subprocess.run(
+                        [args.checker, inf.name, outf.name],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        encoding='utf-8',
+                        check=True)
+                except (subprocess.CalledProcessError, OSError) as exc:
+                    raise FailedCheckerError(input, actual, exc) from exc
     except FailedCase:
         raise
     except Exception as exc:
